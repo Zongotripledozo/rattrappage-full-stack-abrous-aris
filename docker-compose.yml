@@ -24,15 +24,16 @@ services:
       CLIENT_URL: http://localhost:3000
 
   frontend:
-    build: ./Frontend
+    build:
+      context: ./Frontend
+      args:
+        REACT_APP_API_URL: http://localhost:5000/api
     container_name: todo-frontend
     restart: unless-stopped
     depends_on:
       - backend
     ports:
       - "3000:3000"
-    environment:
-      REACT_APP_API_URL: http://localhost:5000/api
 
 volumes:
   mongo-data:

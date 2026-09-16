@@ -1,0 +1,36 @@
+services:
+  # MongoDB tourne ici comme un service prive sur Render (image officielle, pas de build).
+  # ATTENTION : plan gratuit = pas de disque persistant -> les donnees sont perdues a chaque
+  # redemarrage ou mise en veille du service (choix assume, voir README).
+  - type: pserv
+    name: todo-mongo
+    runtime: image
+    image:
+      url: docker.io/library/mongo:7
+    plan: free
+
+  - type: web
+    name: todo-backend
+    runtime: docker
+    rootDir: Backend
+    dockerfilePath: ./Dockerfile
+    plan: free
+    envVars:
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: MONGO_URI
+        value: mongodb://todo-mongo:27017/todo-app
+      - key: CLIENT_URL
+        sync: false
+
+  - type: web
+    name: todo-frontend
+    runtime: docker
+    rootDir: Frontend
+    dockerfilePath: ./Dockerfile
+    plan: free
+    envVars:
+      - key: REACT_APP_API_URL
+        sync: false
