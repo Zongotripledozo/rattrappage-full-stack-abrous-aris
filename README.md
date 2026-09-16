@@ -65,10 +65,10 @@ Les 3 composants (MongoDB, backend, frontend) tournent chacun dans leur propre c
 
 ### Option A - Deploiement automatique via Blueprint (recommande)
 
-Le fichier `render.yaml` a la racine du projet decrit les 3 services :
-- `todo-mongo` : service prive (`pserv`), image officielle `mongo:7`, aucun build necessaire.
-- `todo-backend` : Web Service, `runtime: docker`, utilise `Backend/Dockerfile`, deja configure avec `MONGO_URI=mongodb://todo-mongo:27017/todo-app` (nom d'hote interne Render, resolu automatiquement entre services du meme projet).
-- `todo-frontend` : Web Service, `runtime: docker`, utilise `Frontend/Dockerfile`.
+Le fichier `render.yaml` a la racine du projet decrit les 3 services, **tous en type "Web Service"** (sur le plan gratuit, "Private Service" et "Background Worker" ne sont pas disponibles : seuls Web Service, Static Site, Render Postgres et Render Key Value le sont) :
+- `todo-mongo` : Web Service, image officielle `mongo:7` (aucun build necessaire), avec `PORT=27017` pour que Render sache sur quel port sonder le conteneur (mongod ecoute sur son port par defaut, 27017). Le health check par defaut de Render est une simple sonde TCP, pas une requete HTTP, donc Mongo la passe sans probleme. Cote securite : ce service a bien une URL publique `https://todo-mongo-xxxx.onrender.com`, mais elle ne sert a rien pour un client MongoDB (Render n'y route que du HTTP(S) en entree publique) ; seul le reseau interne Render (utilise par les autres services via `todo-mongo:27017`) permet une vraie connexion Mongo.
+- `todo-backend` : Web Service, `runtime: docker`, utilise `Backend/Dockerfile`, `PORT=5000`, deja configure avec `MONGO_URI=mongodb://todo-mongo:27017/todo-app` (nom d'hote interne Render, resolu automatiquement entre services du meme projet).
+- `todo-frontend` : Web Service, `runtime: docker`, utilise `Frontend/Dockerfile`, `PORT=3000`.
 
 Etapes :
 1. Sur https://dashboard.render.com : "New +" > "Blueprint", selectionner le repo `rattrappage-full-stack-abrous-aris`.
@@ -76,19 +76,17 @@ Etapes :
 3. Lancer le deploiement. Une fois les 3 services up, noter les URLs generees pour `todo-backend` et `todo-frontend` (ex. `https://todo-backend-xxxx.onrender.com`, `https://todo-frontend-xxxx.onrender.com`).
 4. Mettre a jour les variables (etape "Relier le backend au frontend" ci-dessous) puis redeployer.
 
-Si "free" n'est pas propose pour le type de service "Private Service" sur ton compte, cree `todo-mongo` manuellement en "Web Service" avec la meme image (`docker.io/library/mongo:7`) et le plan gratuit : ca fonctionne aussi, Mongo n'etant joignable en pratique que via le reseau interne Render pour les autres services.
-
 ### Option B - Creation manuelle des 3 services
 
-1. **MongoDB** : "New +" > "Private Service" (ou "Web Service" si "Private Service" n'a pas de plan gratuit chez toi) > "Deploy an existing image" > image `docker.io/library/mongo:7` > plan Free. Nommer le service `todo-mongo`.
+1. **MongoDB** : "New +" > "Web Service" > "Deploy an existing image" > image `docker.io/library/mongo:7` > plan Free. Nommer le service `todo-mongo`. Variable d'environnement `PORT` = `27017`.
 2. **Backend** : "New +" > "Web Service", connecter le repo GitHub. Root Directory `Backend`, Runtime Docker (utilise `Backend/Dockerfile`). Variables d'environnement :
+   - `PORT` = `5000`
    - `MONGO_URI` = `mongodb://todo-mongo:27017/todo-app` (le nom du service Mongo sert de nom d'hote interne)
    - `JWT_SECRET` = une chaine aleatoire longue (Render peut la generer)
    - `JWT_EXPIRES_IN` = `7d`
    - `CLIENT_URL` = laisser vide pour l'instant
-   - Ne pas definir `PORT` : Render l'injecte automatiquement et `server.js` le lit deja via `process.env.PORT`.
    Deployer, puis verifier `https://todo-backend-xxxx.onrender.com/api/health` -> `{"status":"ok"}`, et `/api-docs` pour Swagger.
-3. **Frontend** : "New +" > "Web Service" (pas "Static Site"), meme repo. Root Directory `Frontend`, Runtime Docker (utilise `Frontend/Dockerfile`). Variable d'environnement `REACT_APP_API_URL` = `https://todo-backend-xxxx.onrender.com/api`.
+3. **Frontend** : "New +" > "Web Service" (pas "Static Site"), meme repo. Root Directory `Frontend`, Runtime Docker (utilise `Frontend/Dockerfile`). Variables d'environnement : `PORT` = `3000` et `REACT_APP_API_URL` = `https://todo-backend-xxxx.onrender.com/api`.
    Important : Render fournit automatiquement les variables d'environnement du service comme build-arg Docker pour tout `ARG` du meme nom dans le Dockerfile (voir `ARG REACT_APP_API_URL` dans `Frontend/Dockerfile`) : la valeur est donc figee dans le bundle au moment du build. Tout changement necessite un redeploiement complet (pas juste un restart).
    Pas besoin de regle de reecriture separee pour le routing : le flag `-s` de `serve` (voir `CMD` du Dockerfile) renvoie deja `index.html` pour toute route inconnue, ce qui fait fonctionner React Router apres un rafraichissement.
 
@@ -107,6 +105,7 @@ Si "free" n'est pas propose pour le type de service "Private Service" sur ton co
 - **Toutes mes taches/comptes ont disparu** : comportement attendu avec Mongo sans disque persistant (voir encadre plus haut) -> le service Mongo a redemarre (redeploiement ou reveil apres mise en veille) et est reparti d'une base vide.
 - **401 sur toutes les routes taches** : verifier que le frontend envoie bien `Authorization: Bearer <token>` (voir `src/api/axios.js`) et que `JWT_SECRET` est identique entre les requetes (ne pas le regenerer apres coup, sinon les anciens tokens deviennent invalides).
 - **Le frontend Docker ne demarre pas sur Render** : verifier les logs de build -> si `npm run build` echoue, c'est generalement une erreur de compilation React ; si le conteneur demarre puis Render le juge "unhealthy", verifier que rien ne force un port fixe (le `Dockerfile` utilise deja `${PORT:-3000}`, fourni automatiquement par Render).
+- **"service type is not available for this plan" lors du sync du Blueprint** : le plan gratuit de Render n'autorise pas les types "Private Service" ni "Background Worker" (seuls Web Service, Static Site, Render Postgres et Render Key Value sont gratuits). C'est pourquoi `todo-mongo` est declare en `type: web` dans `render.yaml` avec `PORT=27017` -> si l'erreur persiste, verifie que les 3 services du `render.yaml` sont bien tous en `type: web`.
 
 ## Structure du projet
 

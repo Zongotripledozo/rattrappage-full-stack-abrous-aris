@@ -1,13 +1,20 @@
 services:
-  # MongoDB tourne ici comme un service prive sur Render (image officielle, pas de build).
+  # MongoDB tourne ici comme un "Web Service" Docker (image officielle, pas de build) :
+  # c'est le seul type de service gratuit sur Render capable de faire tourner un conteneur
+  # arbitraire (Private Service et Background Worker ne sont pas disponibles sur le plan
+  # gratuit). Le health check par defaut de Render est une simple sonde TCP (pas une requete
+  # HTTP), donc Mongo la passe sans probleme tant que PORT correspond au port ecoute.
   # ATTENTION : plan gratuit = pas de disque persistant -> les donnees sont perdues a chaque
   # redemarrage ou mise en veille du service (choix assume, voir README).
-  - type: pserv
+  - type: web
     name: todo-mongo
     runtime: image
     image:
       url: docker.io/library/mongo:7
     plan: free
+    envVars:
+      - key: PORT
+        value: 27017
 
   - type: web
     name: todo-backend
@@ -16,6 +23,8 @@ services:
     dockerfilePath: ./Dockerfile
     plan: free
     envVars:
+      - key: PORT
+        value: 5000
       - key: JWT_SECRET
         generateValue: true
       - key: JWT_EXPIRES_IN
@@ -32,5 +41,7 @@ services:
     dockerfilePath: ./Dockerfile
     plan: free
     envVars:
+      - key: PORT
+        value: 3000
       - key: REACT_APP_API_URL
         sync: false
