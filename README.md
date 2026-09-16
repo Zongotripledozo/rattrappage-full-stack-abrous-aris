@@ -66,15 +66,17 @@ Les 3 composants (MongoDB, backend, frontend) tournent chacun dans leur propre c
 ### Option A - Deploiement automatique via Blueprint (recommande)
 
 Le fichier `render.yaml` a la racine du projet decrit les 3 services, **tous en type "Web Service"** (sur le plan gratuit, "Private Service" et "Background Worker" ne sont pas disponibles : seuls Web Service, Static Site, Render Postgres et Render Key Value le sont) :
-- `todo-mongo` : Web Service **payant** (`plan: 0.5c-512mb`), image officielle `mongo:7` (aucun build necessaire), disque persistant de 1 Go monte sur `/data/db`, avec `PORT=27017` pour que Render sache sur quel port sonder le conteneur (mongod ecoute sur son port par defaut, 27017). Cote securite : ce service a bien une URL publique `https://todo-mongo-xxxx.onrender.com`, mais elle ne sert a rien pour un client MongoDB (Render n'y route que du HTTP(S) en entree publique) ; seul le reseau interne Render (utilise par les autres services via `todo-mongo:27017`) permet une vraie connexion Mongo - et seule une instance payante peut recevoir ce trafic interne.
-- `todo-backend` : Web Service **gratuit**, `runtime: docker`, utilise `Backend/Dockerfile`, `PORT=5000`, deja configure avec `MONGO_URI=mongodb://todo-mongo:27017/todo-app` (nom d'hote interne Render, resolu automatiquement entre services du meme projet).
+- `todo-mongo` : Web Service **payant** (`plan: 0.5c-512mb`), image officielle `mongo:7` (aucun build necessaire), disque persistant de 1 Go monte sur `/data/db`, avec `PORT=27017` pour que Render sache sur quel port sonder le conteneur (mongod ecoute sur son port par defaut, 27017). Cote securite : ce service a bien une URL publique `https://todo-mongo-xxxx.onrender.com`, mais elle ne sert a rien pour un client MongoDB (Render n'y route que du HTTP(S) en entree publique) ; seul le reseau interne Render permet une vraie connexion Mongo - et seule une instance payante peut recevoir ce trafic interne.
+- `todo-backend` : Web Service **gratuit**, `runtime: docker`, utilise `Backend/Dockerfile`, `PORT=5000`, deja configure avec `MONGO_URI` pointant vers l'adresse interne de `todo-mongo`.
 - `todo-frontend` : Web Service **gratuit**, `runtime: docker`, utilise `Frontend/Dockerfile`, `PORT=3000`.
+
+> **Important sur le nom d'hote interne** : ce n'est **pas** simplement le `name` du service. Render ajoute un suffixe aleatoire propre a chaque service cree (ex. `todo-mongo-3bdj`, visible sur la page du service > bouton "Connect" > onglet "Internal") - c'est ce qui causait l'erreur `getaddrinfo ENOTFOUND todo-mongo` lors du premier essai. Le `render.yaml` actuel utilise deja le suffixe reel de ce deploiement. **Si le service `todo-mongo` est un jour supprime et recree, ce suffixe changera** et il faudra remettre a jour `MONGO_URI` avec la nouvelle valeur (visible dans le meme onglet "Internal").
 
 Etapes :
 1. Sur https://dashboard.render.com : "New +" > "Blueprint", selectionner le repo `rattrappage-full-stack-abrous-aris`.
 2. Render propose de creer les 3 services et va demander une confirmation de paiement pour `todo-mongo` (instance payante + disque). Il demandera aussi `CLIENT_URL` (sur le backend) et `REACT_APP_API_URL` (sur le frontend) : laisser vide pour l'instant, ces deux services n'ayant pas encore d'URL.
 3. Lancer le deploiement. Une fois les 3 services up, noter les URLs generees pour `todo-backend` et `todo-frontend` (ex. `https://todo-backend-xxxx.onrender.com`, `https://todo-frontend-xxxx.onrender.com`).
-4. Verifier l'adresse interne exacte de `todo-mongo` : sur sa page de service > bouton "Connect" > onglet "Internal". Si elle differe de `todo-mongo:27017`, mettre a jour `MONGO_URI` sur `todo-backend` en consequence.
+4. Verifier l'adresse interne exacte de `todo-mongo` : sur sa page de service > bouton "Connect" > onglet "Internal". Si elle differe de celle deja dans `render.yaml`, mettre a jour `MONGO_URI` sur `todo-backend` en consequence.
 5. Mettre a jour les variables (etape "Relier le backend au frontend" ci-dessous) puis redeployer.
 
 ### Option B - Creation manuelle des 3 services
@@ -82,7 +84,7 @@ Etapes :
 1. **MongoDB** : "New +" > "Web Service" > "Deploy an existing image" > image `docker.io/library/mongo:7`. Choisir un plan **payant** (le moins cher disponible, ex. "Starter"/`0.5c-512mb`) - le plan Free ne peut pas recevoir de trafic prive et le backend ne pourra jamais s'y connecter. Ajouter un disque persistant (ex. 1 Go, mount path `/data/db`). Nommer le service `todo-mongo`. Variable d'environnement `PORT` = `27017`.
 2. **Backend** : "New +" > "Web Service", connecter le repo GitHub. Root Directory `Backend`, Runtime Docker (utilise `Backend/Dockerfile`), plan Free. Variables d'environnement :
    - `PORT` = `5000`
-   - `MONGO_URI` = `mongodb://todo-mongo:27017/todo-app` (le nom du service Mongo sert de nom d'hote interne - verifier l'adresse exacte via "Connect" > "Internal" sur la page de `todo-mongo`)
+   - `MONGO_URI` = `mongodb://<adresse-interne-de-todo-mongo>:27017/todo-app` -> recuperer l'adresse exacte (avec son suffixe aleatoire, ex. `todo-mongo-3bdj`) via "Connect" > "Internal" sur la page de `todo-mongo`. Ne pas utiliser le simple nom `todo-mongo` : ca ne resout pas (`getaddrinfo ENOTFOUND`).
    - `JWT_SECRET` = une chaine aleatoire longue (Render peut la generer)
    - `JWT_EXPIRES_IN` = `7d`
    - `CLIENT_URL` = laisser vide pour l'instant
@@ -107,6 +109,7 @@ Etapes :
 - **401 sur toutes les routes taches** : verifier que le frontend envoie bien `Authorization: Bearer <token>` (voir `src/api/axios.js`) et que `JWT_SECRET` est identique entre les requetes (ne pas le regenerer apres coup, sinon les anciens tokens deviennent invalides).
 - **Le frontend Docker ne demarre pas sur Render** : verifier les logs de build -> si `npm run build` echoue, c'est generalement une erreur de compilation React ; si le conteneur demarre puis Render le juge "unhealthy", verifier que rien ne force un port fixe (le `Dockerfile` utilise deja `${PORT:-3000}`, fourni automatiquement par Render).
 - **"service type is not available for this plan" lors du sync du Blueprint** : le plan gratuit de Render n'autorise pas les types "Private Service" ni "Background Worker" (seuls Web Service, Static Site, Render Postgres et Render Key Value sont gratuits). C'est pourquoi `todo-mongo` est declare en `type: web` dans `render.yaml` avec `PORT=27017` -> si l'erreur persiste, verifie que les 3 services du `render.yaml` sont bien tous en `type: web`.
+- **`getaddrinfo ENOTFOUND todo-mongo` dans les logs du backend** : le nom d'hote interne n'est pas le simple `name` du service, Render y ajoute un suffixe aleatoire propre a chaque service (ex. `todo-mongo-3bdj`) -> va chercher la vraie valeur via "Connect" > "Internal" sur la page de `todo-mongo` et mets a jour `MONGO_URI` sur le backend avec cette valeur exacte.
 
 ## Structure du projet
 

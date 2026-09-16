@@ -5,6 +5,12 @@ services:
   # todo-mongo doit donc etre sur une instance payante pour que todo-backend puisse s'y
   # connecter. Un disque persistant est attache pour que les donnees (comptes, taches)
   # survivent aux redeploiements et redemarrages.
+  #
+  # IMPORTANT : le nom d'hote interne d'un service Render n'est PAS simplement son "name" -
+  # Render y ajoute un suffixe aleatoire propre a chaque service cree (visible sur sa page >
+  # bouton "Connect" > onglet "Internal"). Le MONGO_URI ci-dessous utilise le suffixe reel de
+  # ce deploiement (todo-mongo-3bdj) ; si le service todo-mongo est un jour recree, ce suffixe
+  # changera et il faudra mettre a jour MONGO_URI en consequence.
   - type: web
     name: todo-mongo
     runtime: image
@@ -33,7 +39,7 @@ services:
       - key: JWT_EXPIRES_IN
         value: 7d
       - key: MONGO_URI
-        value: mongodb://todo-mongo:27017/todo-app
+        value: mongodb://todo-mongo-3bdj:27017/todo-app
       - key: CLIENT_URL
         sync: false
 
